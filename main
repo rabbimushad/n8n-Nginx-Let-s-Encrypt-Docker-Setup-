@@ -1,0 +1,189 @@
+
+
+# 🚀 n8n + Nginx + Let’s Encrypt (Docker Setup)
+
+This repository provides a production-ready setup for running [n8n](https://n8n.io) with **Nginx** and **automatic SSL certificates** from Let’s Encrypt using **Docker Compose**.
+
+---
+
+## 📦 Features
+
+* n8n running in a Docker container
+* Secured with **HTTPS** via Let’s Encrypt
+* Automatic SSL certificate renewal
+* Basic authentication enabled
+* Easily extendable to host other apps
+
+---
+
+## ⚡ Prerequisites
+
+* A VPS or server with **Docker** + **Docker Compose** installed
+* A domain name pointing to your server (e.g. `n8n.yourdomain.com`)
+
+---
+
+## 📂 Project Structure
+
+```
+.
+├── docker-compose.yml
+├── nginx_conf/
+│   └── n8n.conf
+├── n8n_data/          # n8n workflow data (auto-created)
+└── certbot/           # SSL certificates (auto-created)
+```
+
+---
+
+## ⚙️ Setup
+
+### 1. Clone this repository
+
+```bash
+git clone https://github.com/yourusername/n8n-docker-ssl.git
+cd n8n-docker-ssl
+```
+
+### 2. Configure your domain & credentials
+
+Edit `docker-compose.yml` and `nginx_conf/n8n.conf` and replace:
+
+* `n8n.yourdomain.com` → your domain
+* `admin` / `strongpassword` → your own login
+
+---
+
+## 🐳 Docker Compose
+
+### `docker-compose.yml`
+
+```yaml
+version: "3.8"
+
+services:
+  n8n:
+    image: n8nio/n8n
+    restart: always
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=strongpassword
+      - N8N_HOST=n8n.yourdomain.com
+      - N8N_PROTOCOL=https
+      - NODE_ENV=production
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+
+  nginx:
+    image: nginx:stable
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx_conf:/etc/nginx/conf.d
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    depends_on:
+      - n8n
+
+  certbot:
+    image: certbot/certbot
+    restart: always
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'while :; do sleep 12h & wait $${!}; certbot renew --webroot -w /var/www/certbot; done;'"
+```
+
+---
+
+## 🌐 Nginx Configuration
+
+Create `nginx_conf/n8n.conf`:
+
+```nginx
+server {
+    listen 80;
+    server_name n8n.yourdomain.com;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name n8n.yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/n8n.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/n8n.yourdomain.com/privkey.pem;
+
+    location / {
+        proxy_pass http://n8n:5678;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+---
+
+## 🔑 Obtain SSL Certificate
+
+Run this once to generate your SSL certificate:
+
+```bash
+docker compose run --rm certbot certonly --webroot \
+  --webroot-path=/var/www/certbot \
+  -d n8n.yourdomain.com \
+  --email your-email@example.com \
+  --agree-tos --no-eff-email
+```
+
+---
+
+## 🚀 Start the Stack
+
+```bash
+docker compose up -d
+```
+
+Open in browser:
+
+```
+https://n8n.yourdomain.com
+```
+
+✅ You should see the n8n login page with a secure HTTPS lock.
+
+---
+
+## 🔄 Automatic SSL Renewal
+
+The `certbot` service inside Docker runs every 12 hours.
+Certificates are renewed automatically.
+Nginx uses the renewed certificates without restarting.
+
+---
+
+## 🛠 Troubleshooting
+
+* Check logs: `docker compose logs -f`
+* Verify domain points to server: `ping n8n.yourdomain.com`
+* Make sure port **80** and **443** are open in your firewall
+
+---
+
+## 📜 License
+
+MIT License.
+
+
